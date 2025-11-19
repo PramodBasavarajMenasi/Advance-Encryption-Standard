@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AES-128 Corrected FIPS-197</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --text: #e2e8f0;
+            --enc: #3b82f6;
+            --dec: #f97316;
+            --success: #22c55e;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .panel {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        label { display: block; color: #94a3b8; font-size: 0.8rem; margin-bottom: 5px; font-weight: bold; }
+        input { 
+            width: 100%; 
+            background: #334155; 
+            border: 1px solid #475569; 
+            color: white; 
+            padding: 8px; 
+            font-family: monospace; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+        }
+
+        /* THE GRID */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(4, 50px);
+            gap: 8px;
+            margin: 20px auto;
+            width: fit-content;
+        }
+        
+        .cell {
+            width: 50px; height: 50px;
+            background: #334155;
+            border: 2px solid #475569;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .log-box {
+            height: 150px;
+            overflow-y: auto;
+            background: #020617;
+            border: 1px solid #334155;
+            padding: 10px;
+            font-size: 0.8rem;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+        .log-row { border-bottom: 1px solid #1e293b; padding: 2px 0; }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+            color: white;
+        }
+        .btn-enc { background: var(--enc); }
+        .btn-dec { background: var(--dec); }
+        .btn-enc:disabled, .btn-dec:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    </style>
+</head>
+<body>
+
+    <h2>AES-128 Standard (FIPS 197)</h2>
+
+    <div class="panel">
+        <label>Plaintext (Hex)</label>
+        <input type="text" id="inp-text" value="3243f6a8885a308d313198a2e0370734">
+        
+        <br><br>
+        
+        <label>Key (Hex)</label>
+        <input type="text" id="inp-key" value="2b7e151628aed2a6abf7158809cf4f3c">
+        
+        <br><br>
+        <div style="display:flex; gap:10px;">
+            <button class="btn-enc" id="btn-enc" onclick="startEncryption()">Encrypt</button>
+            <button class="btn-dec" id="btn-dec" onclick="startDecryption()" disabled>Decrypt</button>
+        </div>
+    </div>
+
+    <div class="panel" style="text-align: center;">
+        <div id="status" style="color: var(--success); font-weight: bold; height: 20px;">READY</div>
+        
+        <div class="grid-container" id="grid"></div>
+
+        <div class="log-box" id="log"></div>
+    </div>
+
+<script>
+    // --- CONSTANTS ---
+    const SBOX = [
+        0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+        0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+        0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+        0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+        0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+        0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+        0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+        0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+        0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+        0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+        0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+        0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+        0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+        0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+        0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+        0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16
+    ];
+    const RCON = [0x00,0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1b,0x36];
+    const INV_SBOX = new Uint8Array(256);
+    for(let i=0; i<256; i++) INV_SBOX[SBOX[i]] = i;
+
+    // --- STATE ---
+    // AES State is Column-Major.
+    // Indices 0,1,2,3 are Column 0. 4,5,6,7 are Column 1.
+    let state = new Uint8Array(16);
+    let roundKeys = [];
+
+    // --- HELPERS ---
+    function hexToBytes(hex) {
+        hex = hex.replace(/\s+/g, '');
+        if(hex.length !== 32) return null;
+        let arr = new Uint8Array(16);
+        for(let i=0; i<16; i++) arr[i] = parseInt(hex.substr(i*2, 2), 16);
+        return arr;
+    }
+
+    function bytesToHex(arr) {
+        return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+
+    function galoisMul(a, b) {
+        let p = 0;
+        for (let i=0; i<8; i++) {
+            if (b & 1) p ^= a;
+            let hi = a & 0x80;
+            a <<= 1;
+            if (hi) a ^= 0x1b;
+            b >>= 1;
+        }
+        return p & 0xFF;
+    }
+
+    // --- KEY EXPANSION (Standard) ---
+    function keyExpansion(key) {
+        // Key is also Column-Major (Words)
+        let w = new Uint8Array(176);
+        w.set(key);
+        let i = 16;
+        let rconIdx = 1;
+        
+        while(i < 176) {
+            let temp = w.slice(i-4, i);
+            if(i % 16 === 0) {
+                // RotWord
+                let t = temp[0]; temp[0]=temp[1]; temp[1]=temp[2]; temp[2]=temp[3]; temp[3]=t;
+                // SubWord
+                for(let j=0; j<4; j++) temp[j] = SBOX[temp[j]];
+                // Rcon
+                temp[0] ^= RCON[rconIdx++];
+            }
+            for(let j=0; j<4; j++) w[i+j] = w[i-16+j] ^ temp[j];
+            i += 4;
+        }
+        let keys = [];
+        for(let k=0; k<11; k++) keys.push(w.slice(k*16, (k+1)*16));
+        return keys;
+    }
+
+    // --- OPERATIONS (COLUMN MAJOR) ---
+    
+    function subBytes() {
+        for(let i=0; i<16; i++) state[i] = SBOX[state[i]];
+    }
+    function invSubBytes() {
+        for(let i=0; i<16; i++) state[i] = INV_SBOX[state[i]];
+    }
+
+    function shiftRows() {
+        // State indices:
+        // Row 0: 0, 4, 8, 12 (No shift)
+        // Row 1: 1, 5, 9, 13 (Shift 1: 5, 9, 13, 1)
+        let t = state[1]; state[1]=state[5]; state[5]=state[9]; state[9]=state[13]; state[13]=t;
+        
+        // Row 2: 2, 6, 10, 14 (Shift 2: 10, 14, 2, 6)
+        let t1=state[2], t2=state[6]; state[2]=state[10]; state[6]=state[14]; state[10]=t1; state[14]=t2;
+
+        // Row 3: 3, 7, 11, 15 (Shift 3: 15, 3, 7, 11)
+        let t3=state[15]; state[15]=state[11]; state[11]=state[7]; state[7]=state[3]; state[3]=t3;
+    }
+
+    function invShiftRows() {
+        // Row 1 (Inv Shift 1 -> Right 1)
+        let t = state[13]; state[13]=state[9]; state[9]=state[5]; state[5]=state[1]; state[1]=t;
+        
+        // Row 2 (Inv Shift 2)
+        let t1=state[2], t2=state[6]; state[2]=state[10]; state[6]=state[14]; state[10]=t1; state[14]=t2;
+        
+        // Row 3 (Inv Shift 3 -> Right 3)
+        let t3=state[3]; state[3]=state[7]; state[7]=state[11]; state[11]=state[15]; state[15]=t3;
+    }
+
+    function mixColumns() {
+        // Columns are contiguous blocks in this layout!
+        let temp = new Uint8Array(16);
+        for(let c=0; c<4; c++) { // 4 Columns
+            let idx = c*4;
+            let s0=state[idx], s1=state[idx+1], s2=state[idx+2], s3=state[idx+3];
+            
+            temp[idx]   = galoisMul(s0,2) ^ galoisMul(s1,3) ^ s2 ^ s3;
+            temp[idx+1] = s0 ^ galoisMul(s1,2) ^ galoisMul(s2,3) ^ s3;
+            temp[idx+2] = s0 ^ s1 ^ galoisMul(s2,2) ^ galoisMul(s3,3);
+            temp[idx+3] = galoisMul(s0,3) ^ s1 ^ s2 ^ galoisMul(s3,2);
+        }
+        state.set(temp);
+    }
+
+    function invMixColumns() {
+        let temp = new Uint8Array(16);
+        for(let c=0; c<4; c++) {
+            let idx = c*4;
+            let s0=state[idx], s1=state[idx+1], s2=state[idx+2], s3=state[idx+3];
+
+            temp[idx]   = galoisMul(s0,0x0e) ^ galoisMul(s1,0x0b) ^ galoisMul(s2,0x0d) ^ galoisMul(s3,0x09);
+            temp[idx+1] = galoisMul(s0,0x09) ^ galoisMul(s1,0x0e) ^ galoisMul(s2,0x0b) ^ galoisMul(s3,0x0d);
+            temp[idx+2] = galoisMul(s0,0x0d) ^ galoisMul(s1,0x09) ^ galoisMul(s2,0x0e) ^ galoisMul(s3,0x0b);
+            temp[idx+3] = galoisMul(s0,0x0b) ^ galoisMul(s1,0x0d) ^ galoisMul(s2,0x09) ^ galoisMul(s3,0x0e);
+        }
+        state.set(temp);
+    }
+
+    function addRoundKey(roundIdx) {
+        for(let i=0; i<16; i++) state[i] ^= roundKeys[roundIdx][i];
+    }
+
+    // --- VISUALIZATION ---
+    function renderGrid(hl=[]) {
+        const grid = document.getElementById('grid');
+        grid.innerHTML = '';
+        // We must render ROW by ROW for HTML Grid
+        // Row 0: Indices 0, 4, 8, 12
+        // Row 1: Indices 1, 5, 9, 13
+        for(let r=0; r<4; r++) {
+            for(let c=0; c<4; c++) {
+                let idx = r + (c*4); // Map Row/Col to Index
+                let div = document.createElement('div');
+                div.className = 'cell';
+                div.innerText = state[idx].toString(16).toUpperCase().padStart(2,'0');
+                if(hl.includes(idx)) {
+                    div.style.borderColor = '#22c55e';
+                    div.style.color = '#22c55e';
+                }
+                grid.appendChild(div);
+            }
+        }
+    }
+
+    function log(msg) {
+        const box = document.getElementById('log');
+        let r = document.createElement('div');
+        r.className = 'log-row';
+        r.innerText = msg;
+        box.prepend(r);
+    }
+    function sleep(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+    // --- CONTROLS ---
+    async function startEncryption() {
+        let pt = hexToBytes(document.getElementById('inp-text').value);
+        let key = hexToBytes(document.getElementById('inp-key').value);
+        
+        if(!pt || !key) { alert("Invalid Hex"); return; }
+        
+        state = pt;
+        roundKeys = keyExpansion(key);
+        
+        document.getElementById('btn-enc').disabled = true;
+        document.getElementById('btn-dec').disabled = true;
+        
+        log("Starting Encryption...");
+        renderGrid(); await sleep(200);
+
+        addRoundKey(0);
+        log("Round 0 (Key Whitening)");
+        renderGrid(); await sleep(100);
+
+        for(let r=1; r<=10; r++) {
+            subBytes();
+            shiftRows();
+            if(r < 10) mixColumns();
+            addRoundKey(r);
+            
+            log(`Round ${r} Complete`);
+            renderGrid(); await sleep(100);
+        }
+        
+        let result = bytesToHex(state);
+        log("FINAL CIPHER: " + result);
+        document.getElementById('status').innerText = "CIPHER: " + result;
+        document.getElementById('btn-dec').disabled = false;
+    }
+
+    async function startDecryption() {
+        document.getElementById('btn-dec').disabled = true;
+        log("Starting Decryption...");
+
+        addRoundKey(10);
+        invShiftRows();
+        invSubBytes();
+        log("Inv Round 10");
+        renderGrid(); await sleep(100);
+
+        for(let r=9; r>=1; r--) {
+            addRoundKey(r);
+            invMixColumns();
+            invShiftRows();
+            invSubBytes();
+            log(`Inv Round ${r}`);
+            renderGrid(); await sleep(100);
+        }
+
+        addRoundKey(0);
+        log("Inv Round 0");
+        renderGrid();
+
+        let result = bytesToHex(state);
+        log("FINAL PLAIN: " + result);
+        document.getElementById('status').innerText = "PLAIN: " + result;
+        document.getElementById('btn-enc').disabled = false;
+    }
+    
+    // Initial Render
+    document.addEventListener("DOMContentLoaded", () => {
+        state = hexToBytes(document.getElementById('inp-text').value);
+        renderGrid();
+    });
+
+</script>
+</body>
+</html>
